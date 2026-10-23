@@ -5,7 +5,7 @@ Scan a restaurant receipt, send one link, and everyone taps what they had. Guest
 ## How it works
 
 - **Organizer** opens `/`, scans or types the bill, and taps *Create bill*. They land on `/b/<id>/admin?k=<key>`, the organizer page. Bookmark it: the key in the address is what lets you edit.
-- **Organizer account** (optional): on `/`, the organizer can create an account with email and password. Signed in, every bill they create is saved to the account, so *Your bills* shows it on any device. Bills already saved on that device are added on first sign-in, and opening an organizer link while signed in adds that bill too. Each bill can be opened, renamed or deleted from the list, or deleted from the bottom of the organizer page's *Edit bill* tab. Signed-in organizers do not need the passcode; creating an account does.
+- **Organizer account**: on `/`, the organizer signs in (or creates an account) with email and password before creating a bill. Signed in, every bill they create is saved to the account, so *Your bills* shows it on any device. Bills already saved on that device are added on first sign-in, and opening an organizer link while signed in adds that bill too. Each bill can be opened, renamed or deleted from the list, or deleted from the bottom of the organizer page's *Edit bill* tab.
 - **Guests** open `/b/<id>`, type a name, and tap items. Picks save automatically (a random id in their browser identifies them, no sign-in).
 - **Splitting rules**
   - A dish picked by several people is split between them automatically.
@@ -25,7 +25,6 @@ Scan a restaurant receipt, send one link, and everyone taps what they had. Guest
    - `SUPABASE_SERVICE_ROLE_KEY`
    - `OPENAI_API_KEY`
    - `OPENAI_MODEL` (optional, defaults to `gpt-6-astra`)
-   - `CREATE_PASSCODE` (recommended, so strangers cannot create bills or spend your scanning credits)
 5. Deploy. Open the site, create the bill, and copy the guest link from the organizer page.
 
 ## Run locally

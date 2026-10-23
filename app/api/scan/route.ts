@@ -1,5 +1,5 @@
 import { currentOrganizer } from '@/lib/auth';
-import { adminOk, json, passcodeOk } from '@/lib/server';
+import { adminOk, json } from '@/lib/server';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -12,13 +12,13 @@ export async function POST(req: Request) {
   const billId = req.headers.get('x-bill-id');
   const allowed = billId
     ? await adminOk(billId, req.headers.get('x-admin-key'))
-    : passcodeOk(req.headers.get('x-passcode')) || !!(await currentOrganizer());
+    : !!(await currentOrganizer());
   if (!allowed)
     return json(
       {
         error: billId
           ? 'This organizer link is not valid for this bill, so it cannot scan.'
-          : 'Wrong or missing organizer passcode. Enter it at the top of the page, then scan again.',
+          : 'Sign in to scan a receipt.',
       },
       403,
     );

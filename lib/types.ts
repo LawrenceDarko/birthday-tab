@@ -9,6 +9,24 @@ export type Item = {
 
 export type TipMode = 'percent' | 'amount' | 'none';
 
+/** Where guests send their share. Every field is optional; blank ones are hidden from guests. */
+export type Pay = {
+  /** Who the money goes to, shown as "Pay Ama". */
+  name: string;
+  /** Venmo username without the @. */
+  venmo: string;
+  /** Cash App $cashtag without the $. */
+  cashapp: string;
+  /** Phone or email registered with Zelle. */
+  zelle: string;
+  /** Phone or email for Apple Cash in Messages. */
+  applePay: string;
+};
+
+export function emptyPay(): Pay {
+  return { name: '', venmo: '', cashapp: '', zelle: '', applePay: '' };
+}
+
 export type Bill = {
   title: string;
   merchant: string;
@@ -25,6 +43,8 @@ export type Bill = {
   tipAmount: number;
   receiptSubtotal: number;
   receiptTotal: number;
+  /** Missing on bills saved before payment details existed. */
+  pay?: Pay;
 };
 
 /** itemId -> units claimed */
@@ -56,6 +76,7 @@ export function emptyBill(): Bill {
     tipAmount: 0,
     receiptSubtotal: 0,
     receiptTotal: 0,
+    pay: emptyPay(),
   };
 }
 

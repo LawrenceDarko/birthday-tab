@@ -46,13 +46,13 @@ async function call<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  config: () => call<{ passcodeRequired: boolean; scanEnabled: boolean }>('/api/config'),
+  config: () => call<{ scanEnabled: boolean }>('/api/config'),
   get: (id: string, adminKey?: string) =>
     call<BillResponse>(`/api/bills/${id}`, adminKey ? { headers: { 'x-admin-key': adminKey } } : undefined),
-  create: (bill: Bill, passcode: string) =>
+  create: (bill: Bill) =>
     call<{ id: string; adminKey: string }>('/api/bills', {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-passcode': passcode },
+      headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ bill }),
     }),
   save: (id: string, adminKey: string, bill: Bill) =>
@@ -77,10 +77,10 @@ export const api = {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ bills }),
     }),
-  signup: (email: string, password: string, passcode: string) =>
+  signup: (email: string, password: string) =>
     call<{ ok: true }>('/api/auth/signup', {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-passcode': passcode },
+      headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ email, password }),
     }),
   login: (email: string, password: string) =>

@@ -1,8 +1,8 @@
 'use client';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { BillResponse, Claims } from '@/lib/types';
+import type { Bill, BillResponse, Claims } from '@/lib/types';
 import { computeSplit, fmt, honName, num, qtyOf, totals } from '@/lib/split';
-import { api, ls, lsSet, newId } from '@/lib/client';
+import { api, copyText, ls, lsSet, newId } from '@/lib/client';
 import { BIRTHDAY_NAME, Confetti, PartyHero } from '@/components/Party';
 
 async function sha10(s: string) {
@@ -25,6 +25,67 @@ function sameClaims(a: Claims, b: Claims) {
 /** "a", "a and b", "a, b and c" */
 function listing(parts: string[]) {
   return parts.length < 2 ? parts.join('') : `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`;
+}
+
+/** The organizer's Venmo, Cash App, Zelle and Apple Pay details, with links that prefill the guest's share where the app allows it. */
+function PayOptions({ bill, total }: { bill: Bill; total: number }) {
+  const [copied, setCopied] = useState('');
+  const p = bill.pay;
+  if (!p || !(p.venmo || p.cashapp || p.zelle || p.applePay)) return null;
+  const amt = Math.max(0, total).toFixed(2);
+  const note = encodeURIComponent(bill.title.trim() || `${honName(bill)}'s birthday`);
+
+  async function copy(key: string, text: string) {
+    if (await copyText(text)) {
+      setCopied(key);
+      setTimeout(() => setCopied((c) => (c === key ? '' : c)), 1800);
+    }
+  }
+  const copyBtn = (key: string, text: string) => (
+    <button type="button" className="btn ghost" onClick={() => copy(key, text)}>
+      {copied === key ? 'Copied ♡' : 'Copy'}
+    </button>
+  );
+
+  return (
+    <section className="panel" aria-label="How to pay">
+      <h2>Pay {p.name.trim() || 'the organizer'}</h2>
+      <span className="muted small">
+        Send {fmt(total)} with any of these. Send your picks first so the organizer can match your payment.
+      </span>
+      {p.venmo && (
+        <div className="pay-row">
+          <span><b>Venmo</b><br /><span className="muted small">@{p.venmo}</span></span>
+          <a className="btn" href={`https://venmo.com/${p.venmo}?txn=pay&amount=${amt}&note=${note}`} target="_blank" rel="noreferrer">
+            Pay {fmt(total)}
+          </a>
+        </div>
+      )}
+      {p.cashapp && (
+        <div className="pay-row">
+          <span><b>Cash App</b><br /><span className="muted small">${p.cashapp}</span></span>
+          <a className="btn" href={`https://cash.app/$${p.cashapp}/${amt}`} target="_blank" rel="noreferrer">
+            Pay {fmt(total)}
+          </a>
+        </div>
+      )}
+      {p.zelle && (
+        <div className="pay-row">
+          <span><b>Zelle</b><br /><span className="muted small">{p.zelle}</span></span>
+          {copyBtn('zelle', p.zelle)}
+        </div>
+      )}
+      {p.applePay && (
+        <div className="pay-row">
+          <span><b>Apple Pay</b><br /><span className="muted small">{p.applePay} · send in Messages</span></span>
+          <span className="pay-acts">
+            {copyBtn('apple', p.applePay)}
+            <a className="btn" href={`sms:${p.applePay.replace(/[^\w@.+-]/g, '')}`}>Messages</a>
+          </span>
+        </div>
+      )}
+    </section>
+  );
 }
 
 export default function GuestPage({ params }: { params: { id: string } }) {
@@ -314,6 +375,8 @@ export default function GuestPage({ params }: { params: { id: string } }) {
           </div>
         )}
       </section>
+
+      {!!me?.lines.length && <PayOptions bill={bill} total={me.total} />}
 
       <footer className="thanks">
         <img src="/giselle/cutie.jpg" alt="" />

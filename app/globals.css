@@ -85,6 +85,9 @@ input:focus-visible, textarea:focus-visible, button:focus-visible, a:focus-visib
 .person > span:first-child { min-width: 0; overflow-wrap: anywhere; }
 .right { text-align: right; white-space: nowrap; }
 .right b { font-family: var(--mono); font-variant-numeric: tabular-nums; display: block; }
+.pay-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+.pay-row > span:first-child { min-width: 0; overflow-wrap: anywhere; }
+.pay-acts { display: flex; gap: 8px; flex: none; }
 .file-in { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 details summary { cursor: pointer; font-weight: 600; font-family: var(--display); font-size: 1.05rem; }
 .paybar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 5; background: var(--card); border-top: 1px solid var(--line); padding-block: 10px calc(10px + env(safe-area-inset-bottom, 0px)); padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }

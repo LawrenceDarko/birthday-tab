@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
-import type { Bill, Item, TipMode } from '@/lib/types';
+import { emptyPay, type Bill, type Item, type Pay, type TipMode } from '@/lib/types';
 import { fmt, honName, isDiscount, num, qtyOf, r2, totals } from '@/lib/split';
 import { api, newId, photoToJpeg } from '@/lib/client';
 
@@ -49,13 +49,14 @@ function NumField(props: {
 export default function BillEditor({
   bill,
   onChange,
-  scanAuth,
+  scanAuth = {},
   scanEnabled,
   scanWarning,
 }: {
   bill: Bill;
   onChange: (b: Bill) => void;
-  scanAuth: Record<string, string>;
+  /** Headers that allow scanning for an existing bill (its organizer key); signed-in organizers need none. */
+  scanAuth?: Record<string, string>;
   scanEnabled: boolean;
   /** Extra caution shown next to the scan buttons, e.g. when guests have already picked items. */
   scanWarning?: string;
@@ -64,6 +65,8 @@ export default function BillEditor({
   const set = (patch: Partial<Bill>) => onChange({ ...bill, ...patch });
   const setItem = (id: string, patch: Partial<Item>) =>
     set({ items: bill.items.map((i) => (i.id === id ? { ...i, ...patch } : i)) });
+  const pay = { ...emptyPay(), ...bill.pay };
+  const setPay = (patch: Partial<Pay>) => set({ pay: { ...pay, ...patch } });
 
   async function onPhoto(file: File | undefined) {
     if (!file) return;
@@ -249,6 +252,51 @@ export default function BillEditor({
           <NumField id="d-tipp" label="Tip percent (of pre-tax items)" value={bill.tipPercent} onChange={(v) => set({ tipPercent: v })} />
         )}
         {bill.tipMode === 'amount' && <NumField id="d-tipa" label="Tip amount" value={bill.tipAmount} onChange={(v) => set({ tipAmount: v })} />}
+      </section>
+
+      <section className="panel">
+        <h2>Get paid</h2>
+        <span className="muted small">Guests see these under their total so they can send you their share. Fill in any you use.</span>
+        <label className="field" htmlFor="d-payname">
+          Your name (optional)
+          <input id="d-payname" type="text" placeholder="e.g. Ama" value={pay.name} onChange={(e) => setPay({ name: e.target.value })} />
+        </label>
+        <div className="row">
+          <label className="field" htmlFor="d-venmo">
+            Venmo username
+            <input
+              id="d-venmo"
+              type="text"
+              autoCapitalize="none"
+              autoCorrect="off"
+              placeholder="@username"
+              value={pay.venmo ? `@${pay.venmo}` : ''}
+              onChange={(e) => setPay({ venmo: e.target.value.replace(/[^A-Za-z0-9_-]/g, '') })}
+            />
+          </label>
+          <label className="field" htmlFor="d-cashapp">
+            Cash App $cashtag
+            <input
+              id="d-cashapp"
+              type="text"
+              autoCapitalize="none"
+              autoCorrect="off"
+              placeholder="$cashtag"
+              value={pay.cashapp ? `$${pay.cashapp}` : ''}
+              onChange={(e) => setPay({ cashapp: e.target.value.replace(/[^A-Za-z0-9_]/g, '') })}
+            />
+          </label>
+        </div>
+        <div className="row">
+          <label className="field" htmlFor="d-zelle">
+            Zelle phone or email
+            <input id="d-zelle" type="text" autoCapitalize="none" value={pay.zelle} onChange={(e) => setPay({ zelle: e.target.value })} />
+          </label>
+          <label className="field" htmlFor="d-apple">
+            Apple Pay phone or email
+            <input id="d-apple" type="text" autoCapitalize="none" value={pay.applePay} onChange={(e) => setPay({ applePay: e.target.value })} />
+          </label>
+        </div>
       </section>
 
       <section className="receipt">

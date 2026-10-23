@@ -1,12 +1,9 @@
 import { cleanEmail, hashPassword, startSession } from '@/lib/auth';
-import { db, json, passcodeOk, randomId } from '@/lib/server';
+import { db, json, randomId } from '@/lib/server';
 
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: Request) {
-  // Signed-in organizers skip the passcode, so creating an account needs it.
-  if (!passcodeOk(req.headers.get('x-passcode')))
-    return json({ error: 'Enter the organizer passcode to create an account.' }, 401);
   const body = await req.json().catch(() => null);
   const email = cleanEmail(body?.email);
   const password = String(body?.password ?? '');

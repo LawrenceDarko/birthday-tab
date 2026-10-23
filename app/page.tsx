@@ -11,8 +11,7 @@ const DRAFT = 'bt:draft';
 export default function Home() {
   const router = useRouter();
   const [bill, setBill] = useState<Bill>(emptyBill());
-  const [cfg, setCfg] = useState({ passcodeRequired: false, scanEnabled: true });
-  const [passcode, setPasscode] = useState('');
+  const [cfg, setCfg] = useState({ scanEnabled: true });
   const [mine, setMine] = useState<MyBill[]>([]);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
@@ -27,7 +26,6 @@ export default function Home() {
     if (draft && Array.isArray(draft.items)) setBill({ ...emptyBill(), ...draft });
     setRestored(true);
     setMine(ls<MyBill[]>(MY_BILLS, []));
-    setPasscode(ls('bt:passcode', ''));
     api.config().then(setCfg).catch(() => {});
     loadAccount();
   }, []);
@@ -49,10 +47,8 @@ export default function Home() {
   async function submitAuth() {
     setAuth((a) => ({ ...a, busy: true, err: '' }));
     try {
-      if (auth.mode === 'signup') {
-        await api.signup(auth.email, auth.password, passcode);
-        lsSet('bt:passcode', passcode);
-      } else await api.login(auth.email, auth.password);
+      if (auth.mode === 'signup') await api.signup(auth.email, auth.password);
+      else await api.login(auth.email, auth.password);
       setAuth((a) => ({ ...a, password: '', busy: false }));
       await loadAccount();
     } catch (e: any) {
@@ -87,8 +83,7 @@ export default function Home() {
     if (problem) return setErr(problem);
     setBusy(true);
     try {
-      const { id, adminKey } = await api.create(bill, passcode);
-      if (!account) lsSet('bt:passcode', passcode);
+      const { id, adminKey } = await api.create(bill);
       const entry: MyBill = { id, adminKey, title: bill.title || bill.merchant || 'Bill', createdAt: new Date().toISOString() };
       lsSet(MY_BILLS, [entry, ...ls<MyBill[]>(MY_BILLS, [])].slice(0, 30));
       lsSet(DRAFT, null);
@@ -137,8 +132,7 @@ export default function Home() {
             <section className="panel">
               <h2>{auth.mode === 'signin' ? 'Organizer sign in' : 'Create an organizer account'}</h2>
               <span className="muted small">
-                Sign in to keep your bills on every device and pick up where you left off.
-                {auth.mode === 'signup' && cfg.passcodeRequired ? ' Creating an account needs the organizer passcode below.' : ''}
+                Sign in to create a bill. Your bills are saved to your account, so you can pick up on any device.
               </span>
               <form
                 style={{ display: 'flex', flexDirection: 'column', gap: 10 }}
@@ -174,33 +168,28 @@ export default function Home() {
         </>
       )}
 
-      {cfg.passcodeRequired && !account && (
+      {account && (
+        <>
+          <BillEditor bill={bill} onChange={setBill} scanEnabled={cfg.scanEnabled} />
+
         <section className="panel">
-          <label className="field" htmlFor="pass">
-            Organizer passcode
-            <input id="pass" type="password" value={passcode} onChange={(e) => setPasscode(e.target.value)} />
-          </label>
-        </section>
-      )}
-
-      <BillEditor bill={bill} onChange={setBill} scanAuth={{ 'x-passcode': passcode }} scanEnabled={cfg.scanEnabled} />
-
-      <section className="panel">
-        <button type="button" className="btn" disabled={busy} onClick={create}>
-          {busy ? 'Creating' : 'Create bill and get the link'}
-        </button>
-        {bill.items.length > 0 && (
-          <button type="button" className="btn ghost" disabled={busy} onClick={() => {
-              if (!window.confirm('Clear every item and start a new bill?')) return;
-              setBill(emptyBill());
-              setErr('');
-            }}
-          >
-            Clear and start over
+          <button type="button" className="btn" disabled={busy} onClick={create}>
+            {busy ? 'Creating' : 'Create bill and get the link'}
           </button>
-        )}
-        {err && <div className="banner">{err}</div>}
-      </section>
+          {bill.items.length > 0 && (
+            <button type="button" className="btn ghost" disabled={busy} onClick={() => {
+                if (!window.confirm('Clear every item and start a new bill?')) return;
+                setBill(emptyBill());
+                setErr('');
+              }}
+            >
+              Clear and start over
+            </button>
+          )}
+          {err && <div className="banner">{err}</div>}
+        </section>
+        </>
+      )}
     </main>
   );
 }

@@ -35,13 +35,6 @@ export function publicId(guestId: string) {
   return createHash('sha256').update(guestId).digest('hex').slice(0, 10);
 }
 
-/** Optional passcode that protects creating bills and scanning. */
-export function passcodeOk(provided: string | null) {
-  const required = process.env.CREATE_PASSCODE;
-  if (!required) return true;
-  return !!provided && safeEqual(provided, required);
-}
-
 export async function adminOk(billId: string, key: string | null) {
   if (!key) return false;
   const { data } = await db().from('bills').select('admin_key').eq('id', billId).maybeSingle();
@@ -80,6 +73,13 @@ export function sanitizeBill(input: any): Bill {
     tipAmount: n(input?.tipAmount),
     receiptSubtotal: n(input?.receiptSubtotal),
     receiptTotal: n(input?.receiptTotal),
+    pay: {
+      name: s(input?.pay?.name, 40).trim(),
+      venmo: s(input?.pay?.venmo, 40).replace(/[^A-Za-z0-9_-]/g, ''),
+      cashapp: s(input?.pay?.cashapp, 30).replace(/[^A-Za-z0-9_]/g, ''),
+      zelle: s(input?.pay?.zelle, 80).trim(),
+      applePay: s(input?.pay?.applePay, 80).trim(),
+    },
   };
 }
 
