@@ -1,7 +1,7 @@
 'use client';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { BillResponse, Claims } from '@/lib/types';
-import { computeSplit, fmt, honName, num, qtyOf } from '@/lib/split';
+import { computeSplit, fmt, honName, num, qtyOf, totals } from '@/lib/split';
 import { api, ls, lsSet, newId } from '@/lib/client';
 
 async function sha10(s: string) {
@@ -10,6 +10,21 @@ async function sha10(s: string) {
 }
 
 type Sync = 'idle' | 'saving' | 'saved' | 'error';
+
+function sameClaims(a: Claims, b: Claims) {
+  const norm = (c: Claims) =>
+    Object.entries(c || {})
+      .filter(([, v]) => Math.floor(num(v)) > 0)
+      .map(([k, v]) => `${k}:${Math.floor(num(v))}`)
+      .sort()
+      .join(',');
+  return norm(a) === norm(b);
+}
+
+/** "a", "a and b", "a, b and c" */
+function listing(parts: string[]) {
+  return parts.length < 2 ? parts.join('') : `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`;
+}
 
 export default function GuestPage({ params }: { params: { id: string } }) {
   const id = params.id;
@@ -76,9 +91,10 @@ export default function GuestPage({ params }: { params: { id: string } }) {
     const t = setTimeout(async () => {
       try {
         await api.claim(id, guestId, name.trim(), claims);
+        // Refresh before reporting success so the "sent" check below compares against what the server now holds.
+        await load();
         setSync('saved');
         setSyncErr('');
-        load();
       } catch (e: any) {
         setSync('error');
         setSyncErr(e.message);
@@ -95,6 +111,13 @@ export default function GuestPage({ params }: { params: { id: string } }) {
   }, [data, pid, name, claims]);
   const split = useMemo(() => (bill ? computeSplit(bill, everyone) : null), [bill, everyone]);
   const me = split?.shares.get(pid || 'me');
+  const onServer = data?.guests.find((g) => g.pid === pid);
+  const inSync = !!onServer && onServer.name === name.trim().slice(0, 40) && sameClaims(onServer.claims, claims);
+
+  function sendNow() {
+    dirty.current = true;
+    setClaims({ ...claims });
+  }
 
   function change(next: Claims) {
     dirty.current = true;
@@ -124,9 +147,22 @@ export default function GuestPage({ params }: { params: { id: string } }) {
         <span className="eyebrow">{bill.merchant || 'Bill'}</span>
         {bill.title.trim() && <h1>{bill.title}</h1>}
         <span className="muted small">
-          Tap what you had. If others pick the same dish, it is split between you automatically. Tax
-          {num(bill.gratuity) > 0 ? ', gratuity' : ''}
-          {bill.tipMode !== 'none' ? ' and tip' : ''} are shared by how much you ordered.
+          Tap what you had. If others pick the same dish, it is split between you automatically.
+          {(() => {
+            const t = totals(bill);
+            const extras = [
+              num(bill.tax) > 0 && 'tax',
+              num(bill.gratuity) > 0 && 'the gratuity',
+              num(bill.fees) > 0 && 'fees',
+              t.tip > 0 && 'the tip',
+              t.discount < 0 && 'discounts',
+            ].filter(Boolean) as string[];
+            const s = listing(extras);
+            if (!s) return '';
+            const verb = extras.length > 1 || extras[0].endsWith('s') ? 'are' : 'is';
+            return ` ${s[0].toUpperCase()}${s.slice(1)} ${verb} shared by how much you ordered.`;
+          })()}
+          {bill.coverHonoree && split.totals.hon > 0 && ` ${honName(bill)}'s meal is on the group, split evenly among everyone who picks something.`}
         </span>
       </header>
 
@@ -138,6 +174,7 @@ export default function GuestPage({ params }: { params: { id: string } }) {
             ref={nameRef}
             type="text"
             autoComplete="given-name"
+            maxLength={40}
             placeholder="e.g. Kofi"
             value={name}
             onChange={(e) => {
@@ -154,12 +191,14 @@ export default function GuestPage({ params }: { params: { id: string } }) {
         {split.items.map((st) => {
           const it = st.item;
           const q = qtyOf(it);
-          if (st.group)
+          if (st.group || st.discount)
             return (
               <div className="item locked" key={it.id}>
                 <span className="lead"><span className="nm">{it.name}</span></span>
                 <span className="pr">{fmt(num(it.price))}</span>
-                <span className="sub">{honName(bill)}&apos;s, covered by the group</span>
+                <span className="sub">
+                  {st.group ? `${honName(bill)}'s, covered by the group` : 'Discount, taken off everyone’s share automatically'}
+                </span>
               </div>
             );
           const mine = claims[it.id] || 0;
@@ -223,6 +262,7 @@ export default function GuestPage({ params }: { params: { id: string } }) {
               {num(bill.tax) > 0 && <div className="ln muted"><span>Tax</span><span>{fmt(me.tax)}</span></div>}
               {num(bill.gratuity) > 0 && <div className="ln muted"><span>Gratuity (on the bill)</span><span>{fmt(me.gratuity)}</span></div>}
               {num(bill.fees) > 0 && <div className="ln muted"><span>Fees</span><span>{fmt(me.fees)}</span></div>}
+              {me.discount < 0 && <div className="ln muted"><span>Discount</span><span>{fmt(me.discount)}</span></div>}
               {me.tip > 0 && (
                 <div className="ln muted">
                   <span>Tip{bill.tipMode === 'percent' ? ` (${num(bill.tipPercent)}%)` : ''}</span>
@@ -259,11 +299,17 @@ export default function GuestPage({ params }: { params: { id: string } }) {
               {!name.trim() ? (
                 <button type="button" className="btn" onClick={() => nameRef.current?.focus()}>Add your name</button>
               ) : sync === 'error' ? (
-                <><span className="dot off" />{syncErr || 'Not saved. Check your connection.'}</>
+                <>
+                  <span className="dot off" />
+                  {syncErr || 'Not saved. Check your connection.'}{' '}
+                  <button type="button" className="btn ghost" onClick={sendNow}>Try again</button>
+                </>
               ) : sync === 'saving' ? (
                 <><span className="dot busy" />Saving</>
-              ) : (
+              ) : inSync ? (
                 <><span className="dot" />Sent to the organizer</>
+              ) : (
+                <button type="button" className="btn" onClick={sendNow}>Send to the organizer</button>
               )}
             </span>
           </div>

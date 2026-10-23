@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import type { Bill, Item, TipMode } from '@/lib/types';
-import { fmt, honName, num, qtyOf, r2, totals } from '@/lib/split';
+import { fmt, honName, isDiscount, num, qtyOf, r2, totals } from '@/lib/split';
 import { api, newId, photoToJpeg } from '@/lib/client';
 
 function NumField(props: {
@@ -15,7 +15,8 @@ function NumField(props: {
 }) {
   const [text, setText] = useState(String(props.value ?? ''));
   useEffect(() => {
-    if (num(text) !== props.value) setText(String(props.value ?? ''));
+    // Leave an emptied field alone while it is being retyped (clearing a qty of 2 must not snap back to "1").
+    if (text !== '' && num(text) !== props.value) setText(String(props.value ?? ''));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.value]);
   const input = (
@@ -26,6 +27,9 @@ function NumField(props: {
       inputMode={props.inputMode || 'decimal'}
       aria-label={props.ariaLabel}
       value={text}
+      onBlur={() => {
+        if (num(text) !== props.value || text === '') setText(String(props.value ?? ''));
+      }}
       onChange={(e) => {
         const v = e.target.value.replace(/[^0-9.\-]/g, '');
         setText(v);
@@ -47,11 +51,14 @@ export default function BillEditor({
   onChange,
   scanAuth,
   scanEnabled,
+  scanWarning,
 }: {
   bill: Bill;
   onChange: (b: Bill) => void;
   scanAuth: Record<string, string>;
   scanEnabled: boolean;
+  /** Extra caution shown next to the scan buttons, e.g. when guests have already picked items. */
+  scanWarning?: string;
 }) {
   const [scan, setScan] = useState<{ busy: boolean; msg: string; err: string }>({ busy: false, msg: '', err: '' });
   const set = (patch: Partial<Bill>) => onChange({ ...bill, ...patch });
@@ -87,7 +94,7 @@ export default function BillEditor({
       setScan({
         busy: false,
         err: '',
-        msg: `Found ${items.length} items. Check them against the receipt and mark ${honName(bill)}'s items.`,
+        msg: `Found ${items.length} items. Check them against the receipt${bill.coverHonoree ? ` and mark ${honName(bill)}'s items` : ''}.`,
       });
     } catch (e: any) {
       setScan({ busy: false, msg: '', err: e?.message || 'Could not read that photo.' });
@@ -126,6 +133,7 @@ export default function BillEditor({
                 </label>
               </div>
               <span className="muted small">Scanning replaces the item list. Check every line against the paper before saving.</span>
+              {scanWarning && <div className="banner">{scanWarning}</div>}
             </>
           )
         ) : (
@@ -164,13 +172,13 @@ export default function BillEditor({
                 <input id="d-honoree" type="text" placeholder="Name" value={bill.honoree} onChange={(e) => set({ honoree: e.target.value })} />
               </label>
               <label className="field" htmlFor="d-payers">
-                People splitting her meal
+                People splitting {bill.honoree.trim() ? `${bill.honoree.trim()}'s` : 'their'} meal
                 <input
                   id="d-payers"
                   className="num"
                   type="text"
                   inputMode="numeric"
-                  placeholder="Everyone who joins"
+                  placeholder="Everyone who claims"
                   value={payersLabel}
                   onChange={(e) => {
                     const v = Math.floor(num(e.target.value.replace(/\D/g, '')));
@@ -180,7 +188,8 @@ export default function BillEditor({
               </label>
             </div>
             <span className="muted small">
-              Mark her items below. Their cost with tax and tip is split evenly among everyone who claims something, unless you set a number.
+              Mark {honName(bill)}&apos;s items below. Their cost with tax and tip is split evenly among everyone who claims something. Set a
+              number if some people who will chip in have not joined yet; if more people claim than that, it is split among all of them.
             </span>
           </>
         )}
@@ -202,7 +211,7 @@ export default function BillEditor({
             <button type="button" className="icon-btn" aria-label={`Remove ${it.name || 'item'}`} onClick={() => set({ items: bill.items.filter((x) => x.id !== it.id) })}>
               &times;
             </button>
-            {bill.coverHonoree && (
+            {bill.coverHonoree && !isDiscount(it) && (
               <label className="hon" htmlFor={`h-${it.id}`}>
                 <input id={`h-${it.id}`} type="checkbox" checked={!!it.honoree} onChange={(e) => setItem(it.id, { honoree: e.target.checked })} />
                 {honName(bill)}&apos;s item
@@ -210,6 +219,9 @@ export default function BillEditor({
             )}
           </div>
         ))}
+        {bill.items.some(isDiscount) && (
+          <span className="muted small">Lines with a negative total are discounts. Guests cannot pick them; they lower everyone&apos;s share in proportion.</span>
+        )}
         <button type="button" className="btn ghost" onClick={() => set({ items: [...bill.items, { id: newId(), name: '', qty: 1, price: 0 }] })}>
           Add item
         </button>
@@ -242,6 +254,7 @@ export default function BillEditor({
       <section className="receipt">
         <div className="lines">
           <div className="ln"><span>Items subtotal</span><span>{fmt(t.sub)}</span></div>
+          {t.discount < 0 && <div className="ln muted"><span>Discounts</span><span>{fmt(t.discount)}</span></div>}
           <div className="ln muted"><span>Tax</span><span>{fmt(num(bill.tax))}</span></div>
           {num(bill.gratuity) > 0 && <div className="ln muted"><span>Gratuity</span><span>{fmt(num(bill.gratuity))}</span></div>}
           {num(bill.fees) > 0 && <div className="ln muted"><span>Fees</span><span>{fmt(num(bill.fees))}</span></div>}
@@ -252,9 +265,17 @@ export default function BillEditor({
         </div>
         <div className="rule" />
         <div className="grand"><span className="eyebrow">Bill total</span><span className="v">{fmt(t.total)}</span></div>
-        {num(bill.receiptSubtotal) > 0 && Math.abs(r2(t.sub) - r2(num(bill.receiptSubtotal))) > 0.009 && (
+        {num(bill.receiptSubtotal) > 0 &&
+          Math.abs(r2(t.sub) - r2(num(bill.receiptSubtotal))) > 0.009 &&
+          Math.abs(r2(t.sub + t.discount) - r2(num(bill.receiptSubtotal))) > 0.009 && (
           <div className="banner" style={{ marginTop: 10 }}>
-            Items add up to {fmt(t.sub)} but the receipt subtotal reads {fmt(num(bill.receiptSubtotal))}. Check for a missed or misread line.
+            Items add up to {fmt(t.sub + t.discount)} but the receipt subtotal reads {fmt(num(bill.receiptSubtotal))}. Check for a missed or misread line.
+          </div>
+        )}
+        {num(bill.receiptTotal) > 0 && Math.abs(r2(t.total - t.tip) - r2(num(bill.receiptTotal))) > 0.009 && (
+          <div className="banner" style={{ marginTop: 10 }}>
+            Before the extra tip this bill comes to {fmt(t.total - t.tip)}, but the receipt total reads {fmt(num(bill.receiptTotal))}. Check the
+            items, tax and fees.
           </div>
         )}
         {bill.items.some((i) => qtyOf(i) > 1) && (

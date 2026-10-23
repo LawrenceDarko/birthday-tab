@@ -37,7 +37,8 @@ export type PublicGuest = {
   updatedAt: string;
 };
 
-export type BillResponse = { bill: Bill; guests: PublicGuest[] };
+/** admin is only present when the request carried an organizer key; it says whether that key is right. */
+export type BillResponse = { bill: Bill; guests: PublicGuest[]; admin?: boolean };
 
 export function emptyBill(): Bill {
   return {
@@ -57,3 +58,8 @@ export function emptyBill(): Bill {
     receiptTotal: 0,
   };
 }
+
+/** A bill the organizer can open, from this device's list or their account. */
+export type MyBill = { id: string; adminKey: string; title: string; createdAt: string };
+
+export type Account = { email: string; bills: MyBill[] };

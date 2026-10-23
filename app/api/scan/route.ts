@@ -1,3 +1,4 @@
+import { currentOrganizer } from '@/lib/auth';
 import { adminOk, json, passcodeOk } from '@/lib/server';
 
 export const dynamic = 'force-dynamic';
@@ -11,8 +12,16 @@ export async function POST(req: Request) {
   const billId = req.headers.get('x-bill-id');
   const allowed = billId
     ? await adminOk(billId, req.headers.get('x-admin-key'))
-    : passcodeOk(req.headers.get('x-passcode'));
-  if (!allowed) return json({ error: 'Not allowed to scan.' }, 403);
+    : passcodeOk(req.headers.get('x-passcode')) || !!(await currentOrganizer());
+  if (!allowed)
+    return json(
+      {
+        error: billId
+          ? 'This organizer link is not valid for this bill, so it cannot scan.'
+          : 'Wrong or missing organizer passcode. Enter it at the top of the page, then scan again.',
+      },
+      403,
+    );
 
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) return json({ error: 'Scanning is not set up. Add OPENAI_API_KEY on the server.' }, 501);

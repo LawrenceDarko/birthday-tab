@@ -1,5 +1,5 @@
 'use client';
-import type { Bill, BillResponse } from './types';
+import type { Account, Bill, BillResponse, MyBill } from './types';
 
 export function ls<T>(key: string, fallback: T): T {
   try {
@@ -21,8 +21,22 @@ export function newId(len = 6) {
   return Array.from(a, (b) => 'abcdefghijkmnpqrstuvwxyz23456789'[b % 32]).join('');
 }
 
-export type MyBill = { id: string; adminKey: string; title: string; createdAt: string };
+/** Returns a message for the first problem that would confuse guests, or '' if the bill is fine to share. */
+export function billProblem(bill: Bill): string {
+  if (!bill.items.length) return 'Scan the receipt or add at least one item.';
+  const unnamed = bill.items.filter((i) => !i.name.trim()).length;
+  if (unnamed) return `${unnamed === 1 ? 'One item has' : `${unnamed} items have`} no name. Name ${unnamed === 1 ? 'it' : 'them'} or remove ${unnamed === 1 ? 'it' : 'them'} so guests know what to tap.`;
+  return '';
+}
+
+export type { MyBill };
 export const MY_BILLS = 'bt:my-bills';
+
+/** Updates or drops one bill in this device's list (null drops it). */
+export function updateLocalBill(id: string, patch: Partial<MyBill> | null) {
+  const list = ls<MyBill[]>(MY_BILLS, []);
+  lsSet(MY_BILLS, patch ? list.map((m) => (m.id === id ? { ...m, ...patch } : m)) : list.filter((m) => m.id !== id));
+}
 
 async function call<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, { ...init, cache: 'no-store' });
@@ -33,7 +47,8 @@ async function call<T>(url: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   config: () => call<{ passcodeRequired: boolean; scanEnabled: boolean }>('/api/config'),
-  get: (id: string) => call<BillResponse>(`/api/bills/${id}`),
+  get: (id: string, adminKey?: string) =>
+    call<BillResponse>(`/api/bills/${id}`, adminKey ? { headers: { 'x-admin-key': adminKey } } : undefined),
   create: (bill: Bill, passcode: string) =>
     call<{ id: string; adminKey: string }>('/api/bills', {
       method: 'POST',
@@ -46,6 +61,35 @@ export const api = {
       headers: { 'content-type': 'application/json', 'x-admin-key': adminKey },
       body: JSON.stringify({ bill }),
     }),
+  rename: (id: string, adminKey: string, title: string) =>
+    call<{ ok: true; bill: Bill }>(`/api/bills/${id}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json', 'x-admin-key': adminKey },
+      body: JSON.stringify({ title }),
+    }),
+  remove: (id: string, adminKey: string) =>
+    call<{ ok: true }>(`/api/bills/${id}`, { method: 'DELETE', headers: { 'x-admin-key': adminKey } }),
+  me: () => call<{ account: Account | null }>('/api/me'),
+  /** Adds bills this device knows about to the signed-in account. */
+  attach: (bills: { id: string; adminKey: string }[]) =>
+    call<{ account: Account | null }>('/api/me', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ bills }),
+    }),
+  signup: (email: string, password: string, passcode: string) =>
+    call<{ ok: true }>('/api/auth/signup', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-passcode': passcode },
+      body: JSON.stringify({ email, password }),
+    }),
+  login: (email: string, password: string) =>
+    call<{ ok: true }>('/api/auth/login', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    }),
+  logout: () => call<{ ok: true }>('/api/auth/logout', { method: 'POST' }),
   claim: (id: string, guestId: string, name: string, claims: Record<string, number>) =>
     call<{ ok: true; pid: string }>(`/api/bills/${id}/guests`, {
       method: 'PUT',

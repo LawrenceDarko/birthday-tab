@@ -1,9 +1,9 @@
 'use client';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import BillEditor from '@/components/BillEditor';
 import type { Bill, BillResponse } from '@/lib/types';
 import { computeSplit, fmt, honName, num, qtyOf } from '@/lib/split';
-import { api, copyText, ls, lsSet, MY_BILLS, type MyBill } from '@/lib/client';
+import { api, billProblem, copyText, ls, lsSet, MY_BILLS, updateLocalBill, type MyBill } from '@/lib/client';
 
 type Tab = 'live' | 'edit';
 
@@ -18,9 +18,12 @@ export default function AdminPage({ params, searchParams }: { params: { id: stri
   const [save, setSave] = useState({ busy: false, msg: '', err: '' });
   const [copied, setCopied] = useState('');
   const [confirmRemove, setConfirmRemove] = useState('');
+  const [removeErr, setRemoveErr] = useState('');
   const [open, setOpen] = useState<string>('');
   const [scanEnabled, setScanEnabled] = useState(true);
   const [origin, setOrigin] = useState('');
+  const [del, setDel] = useState({ confirm: false, busy: false, err: '' });
+  const attached = useRef(false);
 
   useEffect(() => {
     setOrigin(window.location.origin);
@@ -29,14 +32,14 @@ export default function AdminPage({ params, searchParams }: { params: { id: stri
 
   const load = useCallback(async () => {
     try {
-      const d = await api.get(id);
+      const d = await api.get(id, key);
       setData(d);
       setLoadErr('');
       setDraft((cur) => cur ?? d.bill);
     } catch (e: any) {
       setLoadErr(e.message);
     }
-  }, [id]);
+  }, [id, key]);
 
   useEffect(() => {
     load();
@@ -46,14 +49,30 @@ export default function AdminPage({ params, searchParams }: { params: { id: stri
     return () => clearInterval(t);
   }, [load]);
 
+  // Leaving with unsaved edits silently drops them otherwise.
+  useEffect(() => {
+    if (!dirty) return;
+    const warn = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [dirty]);
+
   // Remember this bill on this device so it shows on the home page.
   useEffect(() => {
-    if (!data || !key) return;
+    if (!data || !key || data.admin !== true) return;
     const list = ls<MyBill[]>(MY_BILLS, []);
     const title = data.bill.title || data.bill.merchant || 'Bill';
     const rest = list.filter((m) => m.id !== id);
     const prev = list.find((m) => m.id === id);
     lsSet(MY_BILLS, [{ id, adminKey: key, title, createdAt: prev?.createdAt || new Date().toISOString() }, ...rest].slice(0, 30));
+    // Also add it to the organizer's account when they are signed in, so it follows them to other devices.
+    if (!attached.current) {
+      attached.current = true;
+      api.attach([{ id, adminKey: key }]).catch(() => {});
+    }
   }, [data, id, key]);
 
   const split = useMemo(() => (data ? computeSplit(data.bill, data.guests) : null), [data]);
@@ -61,6 +80,8 @@ export default function AdminPage({ params, searchParams }: { params: { id: stri
 
   async function doSave() {
     if (!draft) return;
+    const problem = billProblem(draft);
+    if (problem) return setSave({ busy: false, msg: '', err: problem });
     setSave({ busy: true, msg: '', err: '' });
     try {
       const r = await api.save(id, key, draft);
@@ -74,12 +95,25 @@ export default function AdminPage({ params, searchParams }: { params: { id: stri
   }
 
   async function remove(pid: string) {
+    setRemoveErr('');
     try {
       await api.removeGuest(id, key, pid);
       setConfirmRemove('');
       load();
     } catch (e: any) {
-      setLoadErr(e.message);
+      setRemoveErr(e.message === 'Not allowed.' ? 'This organizer link is not valid for this bill.' : e.message);
+    }
+  }
+
+  async function deleteBill() {
+    setDel({ confirm: true, busy: true, err: '' });
+    try {
+      await api.remove(id, key);
+      updateLocalBill(id, null);
+      setDirty(false);
+      window.location.assign('/');
+    } catch (e: any) {
+      setDel({ confirm: true, busy: false, err: e.message === 'Not allowed.' ? 'This organizer link is not valid for this bill.' : e.message });
     }
   }
 
@@ -112,17 +146,30 @@ export default function AdminPage({ params, searchParams }: { params: { id: stri
   const openItems = split.items.filter((s) => !s.group && s.openFraction > 0.001);
   const doneItems = split.items.filter((s) => s.group || s.openFraction <= 0.001);
   const people = data.guests.filter((g) => g.name.trim());
+  const claimants = people.filter((g) => (split.shares.get(g.pid)?.items || 0) > 0).length;
+  const keyBad = data.admin === false;
+  const roundingOnly = !openItems.length && split.honGap < 0.005 && Math.abs(split.unclaimed) >= 0.005;
 
   return (
     <main className="wrap">
       <header className="head">
+        <a className="small" href="/" style={{ color: 'var(--muted)' }}>← All your bills</a>
         <span className="eyebrow">{bill.merchant || 'Bill'} · organizer</span>
         {bill.title.trim() && <h1>{bill.title}</h1>}
       </header>
 
+      {keyBad && (
+        <div className="banner">
+          This organizer link is not valid for this bill, so you can look but not edit or remove anyone. Open the link you got when you
+          created the bill, or the bill from <a href="/">Your bills</a> on the device you made it on.
+        </div>
+      )}
+
       <nav className="tabs" aria-label="Sections">
         <button type="button" aria-pressed={tab === 'live'} onClick={() => setTab('live')}>Who has what</button>
-        <button type="button" aria-pressed={tab === 'edit'} onClick={() => setTab('edit')}>Edit bill{dirty ? ' •' : ''}</button>
+        {!keyBad && (
+          <button type="button" aria-pressed={tab === 'edit'} onClick={() => setTab('edit')}>Edit bill{dirty ? ' • unsaved' : ''}</button>
+        )}
       </nav>
 
       {tab === 'live' && (
@@ -145,16 +192,31 @@ export default function AdminPage({ params, searchParams }: { params: { id: stri
           <section className="receipt">
             <div className="lines">
               <div className="ln"><span>Bill total</span><span>{fmt(split.totals.total)}</span></div>
-              <div className="ln"><span>Claimed by {people.length} {people.length === 1 ? 'person' : 'people'}</span><span>{fmt(split.collected)}</span></div>
+              <div className="ln"><span>Claimed by {claimants} {claimants === 1 ? 'person' : 'people'}</span><span>{fmt(split.collected)}</span></div>
               {bill.coverHonoree && split.totals.hon > 0 && (
                 <div className="ln muted">
-                  <span>{honName(bill)}&apos;s meal, split {split.payers || 0} ways</span>
+                  <span>
+                    {split.payers
+                      ? `Includes ${honName(bill)}'s meal, split ${split.payers} ways`
+                      : `${honName(bill)}'s meal, split once people claim items`}
+                  </span>
                   <span>{fmt(split.totals.honFull)}</span>
                 </div>
               )}
             </div>
             <div className="rule" />
             <div className="grand"><span className="eyebrow">Still unclaimed</span><span className="v">{fmt(split.unclaimed)}</span></div>
+            {split.honGap >= 0.005 && split.payingCount > 0 && (
+              <div className="banner" style={{ marginTop: 10 }}>
+                {fmt(split.honGap)} of {honName(bill)}&apos;s meal is still open: you set {split.payers} people to split it and{' '}
+                {split.payingCount} {split.payingCount === 1 ? 'has' : 'have'} claimed items so far.
+              </div>
+            )}
+            {roundingOnly && (
+              <div className="muted small" style={{ marginTop: 8 }}>
+                Every item is claimed. The {fmt(Math.abs(split.unclaimed))} left over comes from rounding each person&apos;s total to the cent.
+              </div>
+            )}
             <div className="muted small" style={{ marginTop: 8 }}><span className="dot" />Updates live as guests tap items</div>
           </section>
 
@@ -229,16 +291,20 @@ export default function AdminPage({ params, searchParams }: { params: { id: stri
                           <span>Tax, tip and fees</span>
                           <span>{fmt(s.tax + s.gratuity + s.fees + s.tip)}</span>
                         </div>
+                        {s.discount < 0 && (
+                          <div className="ln muted"><span>Discount</span><span>{fmt(s.discount)}</span></div>
+                        )}
                         {s.honoree > 0 && (
                           <div className="ln muted"><span>Share of {honName(bill)}&apos;s meal</span><span>{fmt(s.honoree)}</span></div>
                         )}
-                        {confirmRemove === g.pid ? (
+                        {keyBad ? null : confirmRemove === g.pid ? (
                           <div className="row" style={{ paddingTop: 6 }}>
                             <button type="button" className="btn" onClick={() => remove(g.pid)}>Remove {g.name}</button>
                             <button type="button" className="btn ghost" onClick={() => setConfirmRemove('')}>Keep</button>
+                            {removeErr && <div className="banner">{removeErr}</div>}
                           </div>
                         ) : (
-                          <button type="button" className="btn ghost" style={{ marginTop: 6 }} onClick={() => setConfirmRemove(g.pid)}>
+                          <button type="button" className="btn ghost" style={{ marginTop: 6 }} onClick={() => { setConfirmRemove(g.pid); setRemoveErr(''); }}>
                             Remove this person
                           </button>
                         )}
@@ -260,9 +326,17 @@ export default function AdminPage({ params, searchParams }: { params: { id: stri
                       <span>
                         {s.item.name} <span className="muted num small">{fmt(num(s.item.price))}</span>
                         <br />
-                        <span className="muted small">{s.group ? `${honName(bill)}'s, covered by the group` : s.claimers.map((c) => c.name).join(', ')}</span>
+                        <span className="muted small">
+                          {s.group
+                            ? `${honName(bill)}'s, covered by the group`
+                            : s.discount
+                              ? 'Discount, shared by everyone in proportion'
+                              : s.claimers.map((c) => (qtyOf(s.item) > 1 ? `${c.name} (${c.units})` : c.name)).join(', ')}
+                        </span>
                       </span>
-                      <span className="chip ok">{s.group ? 'GROUP' : s.claimers.length > 1 ? `SHARED ${s.claimers.length}` : 'CLAIMED'}</span>
+                      <span className="chip ok">
+                        {s.group ? 'GROUP' : s.discount ? 'DISCOUNT' : s.shared ? `SHARED ${s.claimers.length}` : 'CLAIMED'}
+                      </span>
                     </div>
                   ))}
                 </div>
@@ -272,7 +346,7 @@ export default function AdminPage({ params, searchParams }: { params: { id: stri
         </>
       )}
 
-      {tab === 'edit' && (
+      {tab === 'edit' && !keyBad && (
         <>
           <BillEditor
             bill={draft}
@@ -283,6 +357,11 @@ export default function AdminPage({ params, searchParams }: { params: { id: stri
             }}
             scanAuth={{ 'x-bill-id': id, 'x-admin-key': key }}
             scanEnabled={scanEnabled}
+            scanWarning={
+              people.length
+                ? 'Guests have already picked items. Saving a new scan removes all their picks, and they will need to pick again.'
+                : undefined
+            }
           />
           <section className="panel">
             <button type="button" className="btn" disabled={save.busy || !dirty} onClick={doSave}>
@@ -293,6 +372,27 @@ export default function AdminPage({ params, searchParams }: { params: { id: stri
             )}
             {save.msg && <div className="banner good">{save.msg}</div>}
             {save.err && <div className="banner">{save.err}</div>}
+          </section>
+          <section className="panel">
+            <h2>Delete this bill</h2>
+            <span className="muted small">
+              Removes the bill and everyone&apos;s picks. The guest link stops working. This cannot be undone.
+            </span>
+            {del.confirm ? (
+              <div className="row">
+                <button type="button" className="btn" disabled={del.busy} onClick={deleteBill}>
+                  {del.busy ? 'Deleting' : 'Yes, delete it'}
+                </button>
+                <button type="button" className="btn ghost" disabled={del.busy} onClick={() => setDel({ confirm: false, busy: false, err: '' })}>
+                  Keep it
+                </button>
+              </div>
+            ) : (
+              <button type="button" className="btn ghost" onClick={() => setDel({ confirm: true, busy: false, err: '' })}>
+                Delete bill
+              </button>
+            )}
+            {del.err && <div className="banner">{del.err}</div>}
           </section>
         </>
       )}
