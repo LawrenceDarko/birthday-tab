@@ -43,4 +43,4 @@ npm run dev
 - The `service_role` key stays on the server. Row level security is on with no policies, so nothing can be read or written with the public key.
 - Guest ids live in each guest's browser. If a guest switches phones they show up as a new person; remove the old entry from the organizer page.
 - Re-scanning on the organizer page replaces the item list, which drops picks guests already made. Scan before you send the link.
-- A guest's footer says *Sent to the organizer* only when the server has their current picks. If the organizer removed them, or their picks were never sent, it shows a *Send to the organizer* button instead.
+- A guest's footer says *Sent ♡ thank you!* only when the server has their current picks. If the organizer removed them, or their picks were never sent, it shows a *Send to the organizer* button instead.

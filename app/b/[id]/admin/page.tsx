@@ -22,11 +22,13 @@ export default function AdminPage({ params, searchParams }: { params: { id: stri
   const [open, setOpen] = useState<string>('');
   const [scanEnabled, setScanEnabled] = useState(true);
   const [origin, setOrigin] = useState('');
+  const [canShare, setCanShare] = useState(false);
   const [del, setDel] = useState({ confirm: false, busy: false, err: '' });
   const attached = useRef(false);
 
   useEffect(() => {
     setOrigin(window.location.origin);
+    setCanShare(typeof navigator.share === 'function');
     api.config().then((c) => setScanEnabled(c.scanEnabled)).catch(() => {});
   }, []);
 
@@ -117,6 +119,17 @@ export default function AdminPage({ params, searchParams }: { params: { id: stri
     }
   }
 
+  async function shareLink() {
+    const who = data?.bill.honoree.trim() || 'Giselle';
+    try {
+      await navigator.share({
+        title: `${who}’s birthday ♡`,
+        text: `It’s ${who}’s birthday! 🎂 Tap what you had so we can split the bill and cover the birthday girl ♡`,
+        url: guestUrl,
+      });
+    } catch {}
+  }
+
   async function copy(text: string, what: string) {
     const ok = await copyText(text);
     setCopied(ok ? what : 'fail');
@@ -178,7 +191,10 @@ export default function AdminPage({ params, searchParams }: { params: { id: stri
             <h2>Guest link</h2>
             <span className="num small" style={{ overflowWrap: 'anywhere' }}>{guestUrl}</span>
             <div className="row">
-              <button type="button" className="btn" onClick={() => copy(guestUrl, 'guest')}>
+              {canShare && (
+                <button type="button" className="btn" onClick={shareLink}>Share with the girls ♡</button>
+              )}
+              <button type="button" className={canShare ? 'btn ghost' : 'btn'} onClick={() => copy(guestUrl, 'guest')}>
                 {copied === 'guest' ? 'Copied' : 'Copy guest link'}
               </button>
               <a className="btn ghost" href={`/b/${id}`} target="_blank" rel="noreferrer">Open guest view</a>

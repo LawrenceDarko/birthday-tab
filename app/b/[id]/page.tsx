@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { BillResponse, Claims } from '@/lib/types';
 import { computeSplit, fmt, honName, num, qtyOf, totals } from '@/lib/split';
 import { api, ls, lsSet, newId } from '@/lib/client';
+import { BIRTHDAY_NAME, Confetti, PartyHero } from '@/components/Party';
 
 async function sha10(s: string) {
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s));
@@ -39,6 +40,8 @@ export default function GuestPage({ params }: { params: { id: string } }) {
   const [needName, setNeedName] = useState(false);
   const nameRef = useRef<HTMLInputElement>(null);
   const dirty = useRef(false);
+  const [party, setParty] = useState(0);
+  const cheered = useRef(false);
 
   useEffect(() => {
     let gid = ls<string>(`bt:gid:${id}`, '');
@@ -104,6 +107,17 @@ export default function GuestPage({ params }: { params: { id: string } }) {
   }, [claims, name, guestId, id, load]);
 
   const bill = data?.bill;
+  const hasBill = !!bill;
+  useEffect(() => {
+    if (!hasBill) return;
+    let seen = false;
+    try {
+      seen = sessionStorage.getItem(`bt:welcomed:${id}`) === '1';
+      sessionStorage.setItem(`bt:welcomed:${id}`, '1');
+    } catch {}
+    if (!seen) setTimeout(() => setParty((n) => n + 1), 600);
+  }, [hasBill, id]);
+
   const everyone = useMemo(() => {
     if (!data) return [];
     const others = data.guests.filter((g) => g.pid !== pid);
@@ -113,6 +127,14 @@ export default function GuestPage({ params }: { params: { id: string } }) {
   const me = split?.shares.get(pid || 'me');
   const onServer = data?.guests.find((g) => g.pid === pid);
   const inSync = !!onServer && onServer.name === name.trim().slice(0, 40) && sameClaims(onServer.claims, claims);
+
+  // Celebrate the first time this guest's picks reach the organizer.
+  useEffect(() => {
+    if (sync === 'saved' && inSync && !cheered.current) {
+      cheered.current = true;
+      setParty((n) => n + 1);
+    }
+  }, [sync, inSync]);
 
   function sendNow() {
     dirty.current = true;
@@ -137,16 +159,21 @@ export default function GuestPage({ params }: { params: { id: string } }) {
   if (!bill || !split)
     return (
       <main className="wrap">
-        <span className="muted">Loading the bill</span>
+        <div className="loading">
+          <img src="/giselle/chibi.jpg" alt="" />
+          <span className="scrawl">getting the party ready ♡</span>
+        </div>
       </main>
     );
 
   return (
     <main className="wrap">
-      <header className="head">
-        <span className="eyebrow">{bill.merchant || 'Bill'}</span>
-        {bill.title.trim() && <h1>{bill.title}</h1>}
-        <span className="muted small">
+      <Confetti fire={party} />
+      <PartyHero name={bill.honoree.trim() || BIRTHDAY_NAME}>
+        <div className="hero-bill">
+          <span className="pill">♥ {bill.merchant || 'The bill'}</span>
+          {bill.title.trim() && <h2>{bill.title}</h2>}
+          <span className="small muted">
           Tap what you had. If others pick the same dish, it is split between you automatically.
           {(() => {
             const t = totals(bill);
@@ -162,9 +189,10 @@ export default function GuestPage({ params }: { params: { id: string } }) {
             const verb = extras.length > 1 || extras[0].endsWith('s') ? 'are' : 'is';
             return ` ${s[0].toUpperCase()}${s.slice(1)} ${verb} shared by how much you ordered.`;
           })()}
-          {bill.coverHonoree && split.totals.hon > 0 && ` ${honName(bill)}'s meal is on the group, split evenly among everyone who picks something.`}
-        </span>
-      </header>
+          {bill.coverHonoree && split.totals.hon > 0 && ` ${honName(bill)}'s meal is on us ♡ split evenly among everyone who picks something.`}
+          </span>
+        </div>
+      </PartyHero>
 
       <section className="panel">
         <label className="field" htmlFor="g-name">
@@ -175,7 +203,7 @@ export default function GuestPage({ params }: { params: { id: string } }) {
             type="text"
             autoComplete="given-name"
             maxLength={40}
-            placeholder="e.g. Kofi"
+            placeholder="e.g. Ama"
             value={name}
             onChange={(e) => {
               dirty.current = true;
@@ -197,7 +225,7 @@ export default function GuestPage({ params }: { params: { id: string } }) {
                 <span className="lead"><span className="nm">{it.name}</span></span>
                 <span className="pr">{fmt(num(it.price))}</span>
                 <span className="sub">
-                  {st.group ? `${honName(bill)}'s, covered by the group` : 'Discount, taken off everyone’s share automatically'}
+                  {st.group ? `${honName(bill)}'s, on us ♡ it's her day` : 'Discount, taken off everyone’s share automatically'}
                 </span>
               </div>
             );
@@ -287,6 +315,12 @@ export default function GuestPage({ params }: { params: { id: string } }) {
         )}
       </section>
 
+      <footer className="thanks">
+        <img src="/giselle/cutie.jpg" alt="" />
+        <span className="scrawl">{inSync ? `thank you! ${honName(bill)} loves you ♡` : `thank you for celebrating ${honName(bill)} ♡`}</span>
+        <span className="muted small">luv u. now go eat some cake.</span>
+      </footer>
+
       {!!me?.lines.length && (
         <div className="paybar" role="status">
           <div className="in">
@@ -307,7 +341,7 @@ export default function GuestPage({ params }: { params: { id: string } }) {
               ) : sync === 'saving' ? (
                 <><span className="dot busy" />Saving</>
               ) : inSync ? (
-                <><span className="dot" />Sent to the organizer</>
+                <><span className="dot" />Sent ♡ thank you!</>
               ) : (
                 <button type="button" className="btn" onClick={sendNow}>Send to the organizer</button>
               )}

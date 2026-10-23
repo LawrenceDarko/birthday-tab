@@ -102,8 +102,13 @@ export default function Home() {
   return (
     <main className="wrap">
       <header className="head">
-        <span className="eyebrow">Birthday Tab</span>
-        <h1>Split the bill</h1>
+        <div className="home-hero">
+          <img src="/giselle/wink.jpg" alt="" />
+          <div className="head" style={{ gap: 2 }}>
+            <span className="scrawl">Giselle’s birthday ♡</span>
+            <h1>Split the bill</h1>
+          </div>
+        </div>
         <span className="muted small">Scan the receipt, share one link, and everyone taps what they had. Guests never need an account.</span>
       </header>
 

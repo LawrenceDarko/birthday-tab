@@ -42,9 +42,9 @@ export type BillResponse = { bill: Bill; guests: PublicGuest[]; admin?: boolean 
 
 export function emptyBill(): Bill {
   return {
-    title: '',
+    title: 'Giselle’s birthday dinner',
     merchant: '',
-    honoree: '',
+    honoree: 'Giselle',
     coverHonoree: true,
     payersOverride: null,
     items: [],
